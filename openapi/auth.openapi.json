@@ -1,0 +1,5205 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "InQuote Staff API",
+    "version": "1.4.0",
+    "description": "InQuote Backend MVP: staff authentication/account management, common data, owned drafts, immutable publication, viewing access and anonymous snapshot retrieval. Frontends and production operations remain separate work."
+  },
+  "servers": [
+    {
+      "url": "/api/v1"
+    }
+  ],
+  "security": [
+    {
+      "StaffSession": []
+    }
+  ],
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "operationId": "login",
+        "security": [],
+        "description": "Exact Admin Origin/JSON. Uniform INVALID_CREDENTIALS for missing/nonexistent/wrong/disabled/expired temporary credentials. Limited sessions allow inspection/change-password/own password receipts/logout only. 10 attempts/email and 30/IP per 15 minutes.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Origin"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Fresh full/limited session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthSummary"
+                }
+              }
+            },
+            "headers": {
+              "Set-Cookie": {
+                "description": "__Host-inquote_session; Secure; HttpOnly; SameSite=Lax; Path=/; no Domain.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/auth/session": {
+      "get": {
+        "operationId": "inspectSession",
+        "description": "Lock/recheck current account/session. 30-minute idle, 8-hour absolute expiry; temporary expiry may be sooner. 300 staff requests/session/minute.",
+        "responses": {
+          "200": {
+            "description": "Current full/limited summary.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "operationId": "logout",
+        "security": [
+          {
+            "StaffSession": []
+          },
+          {}
+        ],
+        "description": "Repeatable 204 for absent/expired/revoked sessions. Valid sessions require CSRF. Exact Origin/JSON {}. Clears cookie.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/OptionalCsrf"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Logged out; cookie cleared.",
+            "headers": {
+              "Set-Cookie": {
+                "description": "__Host-inquote_session; Secure; HttpOnly; SameSite=Lax; Path=/; no Domain.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/auth/change-password": {
+      "post": {
+        "operationId": "changePassword",
+        "description": "Full/limited session, exact Origin/CSRF/original staff If-Match/key/epoch. Atomic password/flags/revision update, all sessions revoked, receipt committed. Fresh login required. Lost response: fresh login then original own receipt lookup. Identical original intent replays before stale ETag/current-password checks and preserves fresh session cookie. Different intent returns 409. Never attach a new epoch to an old intent.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/RecoveryEpoch"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Committed/replayed receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "operation": {
+                      "$ref": "#/components/schemas/OperationReceipt"
+                    }
+                  },
+                  "required": [
+                    "operation"
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "Set-Cookie": {
+                "description": "Clears only on new commit; omitted on replay.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "412": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "428": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/operations/{key}": {
+      "get": {
+        "operationId": "inspectOwnOperation",
+        "description": "Calling actor committed receipt with captured recovery epoch. Full/limited staff can inspect own password-change receipts. Full Administrators also inspect their own retained Employee, Company and Catalog mutation receipts. Foreign/unsupported receipts are OPERATION_UNKNOWN; no input secrets or historical mutable bodies are returned. Full staff can also recover own CREATE_QUOTATION/SAVE_DRAFT/DISCARD_DRAFT receipts after fresh current ownership check, including retained discard tombstones.",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/RecoveryEpoch"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Own committed result; no input secrets.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/staff": {
+      "get": {
+        "tags": [
+          "Staff"
+        ],
+        "operationId": "listEmployees",
+        "description": "Full Administrator only. EMPLOYEE records, ordered by displayName/id. Signed cursor binds search/enabled/limit and current epoch; authorization is reapplied. No password hashes or temporary credentials.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "enabled",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Employee page.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Staff"
+        ],
+        "operationId": "createEmployee",
+        "description": "Full Administrator/CSRF/epoch/key. Fixed EMPLOYEE role and enabled=true; 24-hour setup credential generated from 32 random bytes by the client. Shared create/reset limit 10 per Administrator/hour. Replays recover the original receipt without returning credentials.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/RecoveryEpoch"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffCreateWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Committed actor-scoped receipt; temporary credentials are never returned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "412": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "428": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/staff/{id}": {
+      "get": {
+        "tags": [
+          "Staff"
+        ],
+        "operationId": "inspectEmployee",
+        "description": "Full Administrator; EMPLOYEE targets only. Returns the scoped ETag in header and body.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Employee identity, state and setup metadata.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffRead"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Strong employee ETag bound to the recovery epoch."
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Staff"
+        ],
+        "operationId": "updateEmployee",
+        "description": "Full Administrator/CSRF/epoch/key/employee If-Match. Update only displayName and enabled; email and role are immutable. Disable atomically revokes every target session; enabling never revives old cookies. Replay is resolved before stale preconditions.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/RecoveryEpoch"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffUpdateWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Committed actor-scoped receipt; temporary credentials are never returned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "412": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "428": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/staff/{id}/credential-reset": {
+      "post": {
+        "tags": [
+          "Staff"
+        ],
+        "operationId": "resetEmployeeCredential",
+        "description": "Full Administrator/CSRF/epoch/key/employee If-Match. Hash client-generated canonical 32-byte base64url temporary credential, set mustChangePassword/24-hour expiry and revoke all target sessions atomically. Preserve enabled state. No credential in response/receipt. Shared create/reset limit 10 per Administrator/hour.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/RecoveryEpoch"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffResetWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Committed actor-scoped receipt; temporary credentials are never returned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "412": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "428": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/company": {
+      "get": {
+        "tags": [
+          "Company"
+        ],
+        "operationId": "inspectCompany",
+        "description": "Full staff session reads singleton profile id1; optional fields may remain null until quotation sharing.",
+        "responses": {
+          "200": {
+            "description": "Current singleton profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyRead"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Strong resource/epoch scoped tag."
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Company"
+        ],
+        "operationId": "updateCompany",
+        "description": "Full Administrator/CSRF/epoch/key/original company If-Match. Full replacement of the four allowed fields. Blank nullable text becomes null; published snapshots are unaffected. Identical receipt replay precedes stale preconditions.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/RecoveryEpoch"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompanyWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Committed actor-scoped operation receipt; fetch the current resource separately.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "412": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "428": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/catalog-items": {
+      "get": {
+        "tags": [
+          "Catalog"
+        ],
+        "operationId": "listCatalogItems",
+        "description": "Full staff, signed pagination sorted by name/id. Employee sees active entries only and cannot request active=false. Administrator may filter availability. Authorization is reapplied on every page.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "active",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Catalog page.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Catalog"
+        ],
+        "operationId": "createCatalogItem",
+        "description": "Full Administrator/CSRF/epoch/key; canonical whole-VND unitPrice string. Returns a receipt; subsequent reads expose the authoritative revision.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/RecoveryEpoch"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Committed actor-scoped operation receipt; fetch the current resource separately.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "412": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "428": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/catalog-items/{id}": {
+      "get": {
+        "tags": [
+          "Catalog"
+        ],
+        "operationId": "inspectCatalogItem",
+        "description": "Full staff; inactive entries are unavailable to Employee. Includes sourceRevision for future quotation selection and resource ETag.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current catalog item.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogRead"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Strong resource/epoch scoped tag."
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Catalog"
+        ],
+        "operationId": "updateCatalogItem",
+        "description": "Full Administrator/CSRF/epoch/key/original item If-Match. Full replacement including active availability. Inactivation blocks new selection but does not change copied quotation bases/prices or published snapshots. No delete endpoint.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/RecoveryEpoch"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Committed actor-scoped operation receipt; fetch the current resource separately.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "412": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "428": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/quotations": {
+      "get": {
+        "tags": [
+          "Quotations"
+        ],
+        "operationId": "listQuotations",
+        "description": "SQL ownership and stable updatedAt/id descending pagination. Signed cursor binds filters/limit/epoch; search treats %/_ literally.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "hasDraft",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "hasShared",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "ownerId",
+            "in": "query",
+            "description": "Administrator only.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorized current summaries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotationPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Quotations"
+        ],
+        "operationId": "createQuotation",
+        "description": "Empty body. Current staff becomes owner; allocate reference and v1 DRAFT atomically with successful receipt. Replay retains original resource even after discard.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/RecoveryEpoch"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Committed create receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffMutationResult"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Created version resource path."
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "412": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "428": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/quotations/{q}": {
+      "get": {
+        "tags": [
+          "Quotations"
+        ],
+        "operationId": "inspectQuotation",
+        "description": "Own or Administrator. Discarded never-shared allocations return generic404.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current quotation summary.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotationSummary"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Strong epoch/resource scoped ETag."
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/quotations/{q}/versions": {
+      "get": {
+        "tags": [
+          "Quotations"
+        ],
+        "operationId": "listQuotationVersions",
+        "description": "Numbered internal history, ascending actual allocated version numbers. No content or public token.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorized version metadata.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/quotations/{q}/versions/{v}": {
+      "get": {
+        "tags": [
+          "Quotations"
+        ],
+        "operationId": "inspectQuotationVersion",
+        "description": "Version must belong to authorized quotation. DRAFT adds live company context/readiness; SHARED reads preserved companySnapshot, without public grant or token.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "v",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Saved version content.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/DraftRead"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InternalSharedRead"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Strong epoch/resource scoped ETag."
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/quotations/{q}/versions/{v}/draft": {
+      "put": {
+        "tags": [
+          "Quotations"
+        ],
+        "operationId": "saveQuotationDraft",
+        "description": "Full replacement under current DRAFT/version If-Match. Resolve active observed new/refresh sources under ordered locks; retain copied existing bases unless refreshSourceRevision supplied. Canonical exact-string calculation, quote/version revisions, projection and receipt commit together.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "v",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/RecoveryEpoch"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DraftWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Committed save receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "412": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "428": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Quotations"
+        ],
+        "operationId": "discardQuotationDraft",
+        "description": "No request body. Delete only DRAFT; retain counter/history/access and ownership. Hide never-shared quotation via retained tombstone. Same original successful key replays after deletion.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "v",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/RecoveryEpoch"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Committed discard receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "412": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "428": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/quotations/{q}/versions/{v}/draft-preview": {
+      "post": {
+        "tags": [
+          "Quotations"
+        ],
+        "operationId": "previewQuotationDraft",
+        "description": "Read-only over supplied replacement and saved DRAFT/version If-Match. Origin/JSON required; no CSRF/operation key/epoch header. persisted:false; no content, projection or receipt write. Same exact validation/calculation as Save.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "v",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DraftWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Unsaved provisional presentation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftRead"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Strong epoch/resource scoped ETag."
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "412": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "428": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/quotations/{q}/versions/{v}/lines/{line}/price-refresh-preview": {
+      "post": {
+        "tags": [
+          "Quotations"
+        ],
+        "operationId": "previewQuotationPriceRefresh",
+        "description": "Read-only saved catalog line. Origin/JSON and DRAFT/version If-Match, no operation headers/CSRF. Edited quantity/override values produce nullable amounts. Source must remain active and unit unchanged. Apply locally; later Save submits observed refreshSourceRevision.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "v",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "line",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshPreviewWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Unsaved observed source/amount comparison.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefreshPreviewRead"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "412": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "428": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/quotations/{q}/revisions": {
+      "post": {
+        "tags": [
+          "Quotations"
+        ],
+        "operationId": "createQuotationRevision",
+        "description": "Return the existing DRAFT before checking stale quotation allocation ETag (200 REUSE_DRAFT receipt); otherwise copy the latest immutable saved values without live catalog/company data, preserve owner, allocate a never-reused number and create a DRAFT (201 CREATE_REVISION receipt). Both outcomes have durable actor receipts; require a well-formed quotation If-Match.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/RecoveryEpoch"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffMutationResult"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created revision receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffMutationResult"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "412": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "428": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/quotations/{q}/versions/{v}/share-review": {
+      "post": {
+        "tags": [
+          "Quotations"
+        ],
+        "operationId": "reviewSavedQuotation",
+        "description": "Read-only saved DRAFT review. Require complete fields and recalculate exact saved values; return allowlisted commercial presentation and a ten-minute signature binding actor, quotation/version/company revisions, recovery epoch and presentation hash. No Save, CSRF or operation headers.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "v",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareReview"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "412": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "428": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/quotations/{q}/versions/{v}/share": {
+      "post": {
+        "tags": [
+          "Quotations"
+        ],
+        "operationId": "shareQuotation",
+        "description": "Verify the current saved review and freeze snapshot/company, advance latest pointer, overwrite access generation and commit receipt atomically. Receipt replay precedes expired review/stale guards and never extends access. Raw links are retrieved separately.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "v",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/RecoveryEpoch"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShareWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "412": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "428": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/quotations/{q}/versions/{v}/access": {
+      "get": {
+        "tags": [
+          "Quotations"
+        ],
+        "operationId": "readViewingAccess",
+        "description": "Read latest ACTIVE/EXPIRED/REVOKED access metadata and scoped ETag. Older SHARED versions return only SUPERSEDED without usable ETag. DRAFT has no access (404).",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "v",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful result.",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessRead"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "412": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "428": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/quotations/{q}/versions/{v}/access/link": {
+      "get": {
+        "tags": [
+          "Quotations"
+        ],
+        "operationId": "copyViewingLink",
+        "description": "With fresh current access If-Match and authorization retrieve only the latest active decrypted fragment URL. Copy neither rotates nor extends access; expired/revoked return LINK_UNAVAILABLE; superseded versions return ACCESS_SUPERSEDED.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "v",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessLink"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "412": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "428": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/quotations/{q}/versions/{v}/access/revoke": {
+      "post": {
+        "tags": [
+          "Quotations"
+        ],
+        "operationId": "revokeViewingAccess",
+        "description": "Revoke the latest grant and clear encrypted token material without editing the shared snapshot. Replay preserves the original result.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "v",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/RecoveryEpoch"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "412": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "428": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/quotations/{q}/versions/{v}/access/replace": {
+      "post": {
+        "tags": [
+          "Quotations"
+        ],
+        "operationId": "replaceViewingAccess",
+        "description": "Overwrite latest generation/hash/authenticated ciphertext with a fresh 720-hour grant, including expired/revoked access. Snapshot stays unchanged; replay cannot extend or resurrect an old generation.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "v",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/Csrf"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/RecoveryEpoch"
+          },
+          {
+            "$ref": "#/components/parameters/IfMatch"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "412": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "428": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/public/quotation-view": {
+      "post": {
+        "tags": [
+          "PublicViewing"
+        ],
+        "operationId": "retrievePublicQuotation",
+        "description": "Anonymous allowlisted immutable snapshot. Ignores staff cookies and Origin. Independent 120/IP/minute quota; lookup rechecks hash, latest pointer, revocation and exact database-clock expiry under shared quotation/version/access locks. Invalid parsed DTO/token, unknown, expired, revoked and superseded links all return 404 LINK_UNAVAILABLE without private details; malformed transport JSON can return 400. All responses are no-store.",
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicViewWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicQuotation"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "StaffSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-inquote_session"
+      }
+    },
+    "parameters": {
+      "Origin": {
+        "name": "Origin",
+        "in": "header",
+        "required": true,
+        "description": "Exact configured HTTPS ADMIN_ORIGIN.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "Csrf": {
+        "name": "X-CSRF-Token",
+        "in": "header",
+        "required": true,
+        "description": "Session-bound AuthSummary token.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "OptionalCsrf": {
+        "name": "X-CSRF-Token",
+        "in": "header",
+        "required": false,
+        "description": "Required for valid sessions.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "IfMatch": {
+        "name": "If-Match",
+        "in": "header",
+        "required": true,
+        "description": "Original strong resource-scoped ETag; weak/multiple/wildcard rejected.",
+        "schema": {
+          "type": "string",
+          "pattern": "^\"[^\"\\r\\n]+\"$"
+        }
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "RecoveryEpoch": {
+        "name": "X-Recovery-Epoch",
+        "in": "header",
+        "required": true,
+        "description": "Captured original intent epoch.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "schemas": {
+      "LoginWrite": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Trimmed/lowercase; missing values receive INVALID_CREDENTIALS."
+          },
+          "password": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "writeOnly": true
+          }
+        },
+        "required": []
+      },
+      "ChangePasswordWrite": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "currentPassword": {
+            "type": "string",
+            "writeOnly": true
+          },
+          "newPassword": {
+            "type": "string",
+            "writeOnly": true,
+            "minLength": 15,
+            "maxLength": 128,
+            "description": "15–128 well-formed Unicode code points, spaces allowed; offline common-password rejection."
+          }
+        },
+        "required": [
+          "currentPassword",
+          "newPassword"
+        ]
+      },
+      "EmptyWrite": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "AuthSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "staff": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string",
+                "format": "email"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "ADMINISTRATOR",
+                  "EMPLOYEE"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "displayName",
+              "email",
+              "role"
+            ]
+          },
+          "staffETag": {
+            "type": "string"
+          },
+          "mustChangePassword": {
+            "type": "boolean"
+          },
+          "csrfToken": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          },
+          "recoveryEpoch": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "serverTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "idleExpiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "absoluteExpiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "staff",
+          "staffETag",
+          "mustChangePassword",
+          "csrfToken",
+          "recoveryEpoch",
+          "serverTime",
+          "idleExpiresAt",
+          "absoluteExpiresAt"
+        ]
+      },
+      "OperationReceipt": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/StaffOperationReceipt"
+          },
+          {
+            "$ref": "#/components/schemas/CompanyOperationReceipt"
+          },
+          {
+            "$ref": "#/components/schemas/CatalogOperationReceipt"
+          },
+          {
+            "$ref": "#/components/schemas/QuotationOperationReceipt"
+          }
+        ]
+      },
+      "Problem": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "minimum": 400,
+            "maximum": 599
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "INVALID_REQUEST",
+              "IDEMPOTENCY_KEY_REQUIRED",
+              "INVALID_CREDENTIALS",
+              "SESSION_REQUIRED",
+              "FORBIDDEN",
+              "PASSWORD_CHANGE_REQUIRED",
+              "NOT_FOUND",
+              "OPERATION_UNKNOWN",
+              "RECOVERY_REQUIRED",
+              "IDEMPOTENCY_KEY_REUSED",
+              "REVISION_CONFLICT",
+              "VALIDATION_FAILED",
+              "PRECONDITION_REQUIRED",
+              "RATE_LIMITED",
+              "INTERNAL_ERROR",
+              "SERVICE_UNAVAILABLE",
+              "EMAIL_ALREADY_EXISTS"
+            ]
+          },
+          "detail": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "pointer": {
+                  "type": "string"
+                },
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "pointer",
+                "code",
+                "message"
+              ]
+            }
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail",
+          "requestId"
+        ]
+      },
+      "StaffCreateWrite": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Trimmed at boundaries; must remain nonblank."
+          },
+          "email": {
+            "type": "string",
+            "description": "Trimmed/lowercased; normalized value must have valid email syntax and at most 254 characters."
+          },
+          "temporaryPassword": {
+            "type": "string",
+            "minLength": 43,
+            "maxLength": 43,
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "description": "Canonical unpadded base64url encoding of 32 cryptographically random bytes; client generated and handed over manually. Never returned by the server.",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "displayName",
+          "email",
+          "temporaryPassword"
+        ]
+      },
+      "StaffUpdateWrite": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Trimmed at boundaries; must remain nonblank."
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "displayName",
+          "enabled"
+        ]
+      },
+      "StaffResetWrite": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "temporaryPassword": {
+            "type": "string",
+            "minLength": 43,
+            "maxLength": 43,
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "description": "Canonical unpadded base64url encoding of 32 cryptographically random bytes; client generated and handed over manually. Never returned by the server.",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "temporaryPassword"
+        ]
+      },
+      "StaffRead": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "role": {
+            "type": "string",
+            "const": "EMPLOYEE"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "mustChangePassword": {
+            "type": "boolean"
+          },
+          "temporaryCredentialExpiresAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "etag": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "displayName",
+          "email",
+          "role",
+          "enabled",
+          "mustChangePassword",
+          "temporaryCredentialExpiresAt",
+          "etag",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "StaffPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/StaffRead"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ]
+      },
+      "StaffMutationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operation": {
+            "$ref": "#/components/schemas/OperationReceipt"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "CompanyWrite": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "displayName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 50
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Trimmed optional email; nonblank normalized value must have valid syntax and at most254 characters."
+          }
+        },
+        "required": [
+          "displayName",
+          "address",
+          "phone",
+          "email"
+        ]
+      },
+      "CompanyRead": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "integer",
+            "const": 1
+          },
+          "displayName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 50
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Trimmed optional email; nonblank normalized value must have valid syntax and at most254 characters."
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "etag": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "displayName",
+          "address",
+          "phone",
+          "email",
+          "revision",
+          "etag",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "CatalogWrite": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "unitPrice": {
+            "type": "string",
+            "pattern": "^[0-9]+$",
+            "description": "Nonnegative whole-VND ASCII decimal string, maximum1000000000000; normalized to canonical digits without leading zeros."
+          },
+          "active": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "unit",
+          "unitPrice",
+          "active"
+        ]
+      },
+      "CatalogRead": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "unitPrice": {
+            "type": "string",
+            "pattern": "^[0-9]+$",
+            "description": "Nonnegative whole-VND ASCII decimal string, maximum1000000000000; normalized to canonical digits without leading zeros."
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "sourceRevision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "etag": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "unit",
+          "unitPrice",
+          "active",
+          "sourceRevision",
+          "revision",
+          "etag",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "CatalogPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/CatalogRead"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ]
+      },
+      "StaffOperationReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "CHANGE_PASSWORD",
+              "CREATE_EMPLOYEE",
+              "UPDATE_EMPLOYEE",
+              "RESET_EMPLOYEE_CREDENTIAL"
+            ]
+          },
+          "recoveryEpoch": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "resourceIds": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "staffId": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "staffId"
+            ]
+          },
+          "appliedRevisions": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "staff": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "staff"
+            ]
+          },
+          "committedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "key",
+          "kind",
+          "recoveryEpoch",
+          "resourceIds",
+          "appliedRevisions",
+          "committedAt"
+        ]
+      },
+      "CompanyOperationReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "const": "UPDATE_COMPANY"
+          },
+          "recoveryEpoch": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "resourceIds": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "companyId": {
+                "type": "integer",
+                "const": 1
+              }
+            },
+            "required": [
+              "companyId"
+            ]
+          },
+          "appliedRevisions": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "company": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "company"
+            ]
+          },
+          "committedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "key",
+          "kind",
+          "recoveryEpoch",
+          "resourceIds",
+          "appliedRevisions",
+          "committedAt"
+        ]
+      },
+      "CatalogOperationReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "CREATE_CATALOG_ITEM",
+              "UPDATE_CATALOG_ITEM"
+            ]
+          },
+          "recoveryEpoch": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "resourceIds": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "catalogItemId": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "catalogItemId"
+            ]
+          },
+          "appliedRevisions": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "catalogItem": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "catalogItem"
+            ]
+          },
+          "committedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "key",
+          "kind",
+          "recoveryEpoch",
+          "resourceIds",
+          "appliedRevisions",
+          "committedAt"
+        ]
+      },
+      "DraftCustomer": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "contactPerson": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 50
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 254
+          },
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "name",
+          "contactPerson",
+          "phone",
+          "email",
+          "address"
+        ]
+      },
+      "DraftWork": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "siteAddress": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "description",
+          "siteAddress"
+        ]
+      },
+      "CustomLineWrite": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "lineId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "const": "CUSTOM",
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          },
+          "quantity": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9]+(?:\\.[0-9]+)?$",
+            "description": "Positive quantity at most1000000. Normalize trailing zeroes then enforce two decimals."
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 50
+          },
+          "unitPrice": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9]+$",
+            "description": "Whole VND digits, normalized by server; 0 through 1000000000000."
+          }
+        },
+        "required": [
+          "lineId",
+          "kind",
+          "description",
+          "quantity",
+          "unit",
+          "unitPrice"
+        ]
+      },
+      "NewCatalogLineWrite": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "lineId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "const": "CATALOG",
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          },
+          "quantity": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9]+(?:\\.[0-9]+)?$",
+            "description": "Positive quantity at most1000000. Normalize trailing zeroes then enforce two decimals."
+          },
+          "sourceCatalogId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sourceRevision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "overrideUnitPrice": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9]+$",
+            "description": "Whole VND digits, normalized by server; 0 through 1000000000000."
+          }
+        },
+        "required": [
+          "lineId",
+          "kind",
+          "description",
+          "quantity",
+          "sourceCatalogId",
+          "sourceRevision",
+          "overrideUnitPrice"
+        ]
+      },
+      "ExistingCatalogLineWrite": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "lineId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "const": "CATALOG",
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          },
+          "quantity": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9]+(?:\\.[0-9]+)?$",
+            "description": "Positive quantity at most1000000. Normalize trailing zeroes then enforce two decimals."
+          },
+          "overrideUnitPrice": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9]+$",
+            "description": "Whole VND digits, normalized by server; 0 through 1000000000000."
+          },
+          "refreshSourceRevision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "lineId",
+          "kind",
+          "description",
+          "quantity",
+          "overrideUnitPrice"
+        ]
+      },
+      "DraftWrite": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "customer": {
+            "$ref": "#/components/schemas/DraftCustomer"
+          },
+          "work": {
+            "$ref": "#/components/schemas/DraftWork"
+          },
+          "terms": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 5000
+          },
+          "lines": {
+            "type": "array",
+            "maxItems": 1000,
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/CustomLineWrite"
+                },
+                {
+                  "$ref": "#/components/schemas/NewCatalogLineWrite"
+                },
+                {
+                  "$ref": "#/components/schemas/ExistingCatalogLineWrite"
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "customer",
+          "work",
+          "terms",
+          "lines"
+        ],
+        "description": "Full replacement, all named fields required. Line IDs unique case-insensitive UUIDs. New catalog source fields are forbidden on existing lines; kind/source cannot change on a retained ID. Missing draft values use null. No client-owned provenance or amounts."
+      },
+      "CustomLineRead": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "lineId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "const": "CUSTOM",
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          },
+          "quantity": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9]+(?:\\.[0-9]+)?$",
+            "description": "Positive quantity at most1000000. Normalize trailing zeroes then enforce two decimals."
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 50
+          },
+          "unitPrice": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "amount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(0|[1-9][0-9]*)$"
+          }
+        },
+        "required": [
+          "lineId",
+          "kind",
+          "description",
+          "quantity",
+          "unit",
+          "unitPrice",
+          "amount"
+        ]
+      },
+      "CatalogLineRead": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "lineId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "const": "CATALOG",
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          },
+          "quantity": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9]+(?:\\.[0-9]+)?$",
+            "description": "Positive quantity at most1000000. Normalize trailing zeroes then enforce two decimals."
+          },
+          "unit": {
+            "type": "string",
+            "maxLength": 50
+          },
+          "unitPrice": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "amount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "sourceCatalogId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sourceRevision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "baseUnitPrice": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "overrideUnitPrice": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(0|[1-9][0-9]*)$"
+          }
+        },
+        "required": [
+          "lineId",
+          "kind",
+          "description",
+          "quantity",
+          "unit",
+          "unitPrice",
+          "amount",
+          "sourceCatalogId",
+          "sourceRevision",
+          "baseUnitPrice",
+          "overrideUnitPrice"
+        ]
+      },
+      "DraftCalculation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "complete": {
+            "type": "boolean"
+          },
+          "subtotal": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "total": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(0|[1-9][0-9]*)$"
+          }
+        },
+        "required": [
+          "complete",
+          "subtotal",
+          "total"
+        ]
+      },
+      "VersionMetadata": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quotationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "SHARED"
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "schemaVersion": {
+            "const": 1,
+            "type": "integer"
+          },
+          "etag": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sharedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "quotationId",
+          "number",
+          "state",
+          "revision",
+          "schemaVersion",
+          "etag",
+          "createdAt",
+          "updatedAt",
+          "sharedAt"
+        ]
+      },
+      "DraftRead": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quotationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "state": {
+            "const": "DRAFT",
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "schemaVersion": {
+            "const": 1,
+            "type": "integer"
+          },
+          "etag": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sharedAt": {
+            "type": "null"
+          },
+          "reference": {
+            "type": "string",
+            "pattern": "^IQ-[0-9]{6,}$"
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quotationRevision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "quotationETag": {
+            "type": "string"
+          },
+          "currency": {
+            "const": "VND",
+            "type": "string"
+          },
+          "customer": {
+            "$ref": "#/components/schemas/DraftCustomer"
+          },
+          "work": {
+            "$ref": "#/components/schemas/DraftWork"
+          },
+          "terms": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 5000
+          },
+          "lines": {
+            "type": "array",
+            "maxItems": 1000,
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/CustomLineRead"
+                },
+                {
+                  "$ref": "#/components/schemas/CatalogLineRead"
+                }
+              ]
+            }
+          },
+          "calculation": {
+            "$ref": "#/components/schemas/DraftCalculation"
+          },
+          "persisted": {
+            "type": "boolean"
+          },
+          "companyContext": {
+            "$ref": "#/components/schemas/CompanyRead"
+          },
+          "shareReady": {
+            "type": "boolean"
+          },
+          "missingFields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "quotationId",
+          "number",
+          "state",
+          "revision",
+          "schemaVersion",
+          "etag",
+          "createdAt",
+          "updatedAt",
+          "sharedAt",
+          "reference",
+          "ownerId",
+          "quotationRevision",
+          "quotationETag",
+          "currency",
+          "customer",
+          "work",
+          "terms",
+          "lines",
+          "calculation",
+          "persisted",
+          "companyContext",
+          "shareReady",
+          "missingFields"
+        ]
+      },
+      "InternalSharedRead": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quotationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "state": {
+            "const": "SHARED",
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "schemaVersion": {
+            "const": 1,
+            "type": "integer"
+          },
+          "etag": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sharedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reference": {
+            "type": "string",
+            "pattern": "^IQ-[0-9]{6,}$"
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quotationRevision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "quotationETag": {
+            "type": "string"
+          },
+          "currency": {
+            "const": "VND",
+            "type": "string"
+          },
+          "customer": {
+            "$ref": "#/components/schemas/DraftCustomer"
+          },
+          "work": {
+            "$ref": "#/components/schemas/DraftWork"
+          },
+          "terms": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 5000
+          },
+          "lines": {
+            "type": "array",
+            "maxItems": 1000,
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/CustomLineRead"
+                },
+                {
+                  "$ref": "#/components/schemas/CatalogLineRead"
+                }
+              ]
+            }
+          },
+          "calculation": {
+            "$ref": "#/components/schemas/DraftCalculation"
+          },
+          "persisted": {
+            "const": true,
+            "type": "boolean"
+          },
+          "companySnapshot": {
+            "$ref": "#/components/schemas/CompanyWrite"
+          }
+        },
+        "required": [
+          "id",
+          "quotationId",
+          "number",
+          "state",
+          "revision",
+          "schemaVersion",
+          "etag",
+          "createdAt",
+          "updatedAt",
+          "sharedAt",
+          "reference",
+          "ownerId",
+          "quotationRevision",
+          "quotationETag",
+          "currency",
+          "customer",
+          "work",
+          "terms",
+          "lines",
+          "calculation",
+          "persisted",
+          "companySnapshot"
+        ]
+      },
+      "QuotationSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reference": {
+            "type": "string",
+            "pattern": "^IQ-[0-9]{6,}$"
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "lastAllocatedNumber": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "etag": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "customerName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "workDescription": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "total": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "draftVersionId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "draftVersionNumber": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "latestSharedVersionId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "currency": {
+            "const": "VND",
+            "type": "string"
+          },
+          "summarySource": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "SHARED"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "reference",
+          "ownerId",
+          "lastAllocatedNumber",
+          "revision",
+          "etag",
+          "createdAt",
+          "updatedAt",
+          "customerName",
+          "workDescription",
+          "total",
+          "draftVersionId",
+          "draftVersionNumber",
+          "latestSharedVersionId",
+          "currency",
+          "summarySource"
+        ]
+      },
+      "QuotationPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/QuotationSummary"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 4096
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ]
+      },
+      "VersionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/VersionMetadata"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 4096
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ]
+      },
+      "RefreshPreviewWrite": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "quantity": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9]+(?:\\.[0-9]+)?$",
+            "description": "Positive quantity at most1000000. Normalize trailing zeroes then enforce two decimals."
+          },
+          "overrideUnitPrice": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9]+$",
+            "description": "Whole VND digits, normalized by server; 0 through 1000000000000."
+          }
+        },
+        "required": [
+          "quantity",
+          "overrideUnitPrice"
+        ]
+      },
+      "RefreshPreviewRead": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "persisted": {
+            "const": false,
+            "type": "boolean"
+          },
+          "lineId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sourceRevision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "oldBaseUnitPrice": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "newBaseUnitPrice": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "oldUnitPrice": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "newUnitPrice": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "overrideRetained": {
+            "type": "boolean"
+          },
+          "oldAmount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "newAmount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(0|[1-9][0-9]*)$"
+          }
+        },
+        "required": [
+          "persisted",
+          "lineId",
+          "sourceRevision",
+          "oldBaseUnitPrice",
+          "newBaseUnitPrice",
+          "oldUnitPrice",
+          "newUnitPrice",
+          "overrideRetained",
+          "oldAmount",
+          "newAmount"
+        ]
+      },
+      "QuotationOperationReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "CREATE_QUOTATION",
+              "SAVE_DRAFT",
+              "DISCARD_DRAFT",
+              "CREATE_REVISION",
+              "REUSE_DRAFT",
+              "SHARE_QUOTATION",
+              "REVOKE_ACCESS",
+              "REPLACE_ACCESS"
+            ]
+          },
+          "recoveryEpoch": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "resourceIds": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "quotationId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "versionId": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "quotationId",
+              "versionId"
+            ]
+          },
+          "appliedRevisions": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "quotation": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "version": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "access": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "minProperties": 1
+          },
+          "committedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "accessGeneration": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "key",
+          "kind",
+          "recoveryEpoch",
+          "resourceIds",
+          "appliedRevisions",
+          "committedAt"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "REVOKE_ACCESS",
+                    "REPLACE_ACCESS"
+                  ]
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "appliedRevisions": {
+                  "required": [
+                    "access"
+                  ]
+                }
+              },
+              "required": [
+                "accessGeneration"
+              ]
+            },
+            "else": {
+              "properties": {
+                "appliedRevisions": {
+                  "required": [
+                    "quotation"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "SHARE_QUOTATION"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "required": [
+                "accessGeneration"
+              ],
+              "properties": {
+                "appliedRevisions": {
+                  "required": [
+                    "quotation",
+                    "version",
+                    "access"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "PublicQuotation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "reference": {
+            "type": "string",
+            "pattern": "^IQ-[0-9]{6,}$"
+          },
+          "versionNumber": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sharedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string",
+            "const": "VND"
+          },
+          "company": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "displayName": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "address": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 500
+              },
+              "phone": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 50
+              },
+              "email": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 254
+              }
+            },
+            "required": [
+              "displayName",
+              "address",
+              "phone",
+              "email"
+            ]
+          },
+          "customer": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "name"
+            ]
+          },
+          "work": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "description": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "siteAddress": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 500
+              }
+            },
+            "required": [
+              "description",
+              "siteAddress"
+            ]
+          },
+          "lines": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "description": {
+                  "type": "string",
+                  "maxLength": 500
+                },
+                "unit": {
+                  "type": "string",
+                  "maxLength": 50
+                },
+                "quantity": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(?:\\.[0-9]{1,2})?$",
+                  "maxLength": 10,
+                  "description": "Exact canonical quantity, greater than zero and at most 1000000."
+                },
+                "unitPrice": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$",
+                  "maxLength": 13,
+                  "description": "Exact canonical whole VND, at most 1000000000000."
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$",
+                  "maxLength": 16,
+                  "description": "Exact canonical whole VND, at most 1000000000000000."
+                }
+              },
+              "required": [
+                "description",
+                "unit",
+                "quantity",
+                "unitPrice",
+                "amount"
+              ]
+            }
+          },
+          "total": {
+            "type": "string",
+            "pattern": "^[0-9]+$",
+            "maxLength": 16,
+            "description": "Exact canonical whole VND, at most 1000000000000000."
+          },
+          "terms": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 5000
+          }
+        },
+        "required": [
+          "reference",
+          "versionNumber",
+          "sharedAt",
+          "currency",
+          "company",
+          "customer",
+          "work",
+          "lines",
+          "total",
+          "terms"
+        ]
+      },
+      "ReviewPresentation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "reference": {
+            "type": "string",
+            "pattern": "^IQ-[0-9]{6,}$"
+          },
+          "versionNumber": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sharedAt": {
+            "type": "null",
+            "description": "Assigned by the server when the reviewed snapshot is shared."
+          },
+          "currency": {
+            "type": "string",
+            "const": "VND"
+          },
+          "company": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "displayName": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "address": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 500
+              },
+              "phone": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 50
+              },
+              "email": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 254
+              }
+            },
+            "required": [
+              "displayName",
+              "address",
+              "phone",
+              "email"
+            ]
+          },
+          "customer": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "name"
+            ]
+          },
+          "work": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "description": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "siteAddress": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 500
+              }
+            },
+            "required": [
+              "description",
+              "siteAddress"
+            ]
+          },
+          "lines": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "description": {
+                  "type": "string",
+                  "maxLength": 500
+                },
+                "unit": {
+                  "type": "string",
+                  "maxLength": 50
+                },
+                "quantity": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(?:\\.[0-9]{1,2})?$",
+                  "maxLength": 10,
+                  "description": "Exact canonical quantity, greater than zero and at most 1000000."
+                },
+                "unitPrice": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$",
+                  "maxLength": 13,
+                  "description": "Exact canonical whole VND, at most 1000000000000."
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$",
+                  "maxLength": 16,
+                  "description": "Exact canonical whole VND, at most 1000000000000000."
+                }
+              },
+              "required": [
+                "description",
+                "unit",
+                "quantity",
+                "unitPrice",
+                "amount"
+              ]
+            }
+          },
+          "total": {
+            "type": "string",
+            "pattern": "^[0-9]+$",
+            "maxLength": 16,
+            "description": "Exact canonical whole VND, at most 1000000000000000."
+          },
+          "terms": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 5000
+          }
+        },
+        "required": [
+          "reference",
+          "versionNumber",
+          "sharedAt",
+          "currency",
+          "company",
+          "customer",
+          "work",
+          "lines",
+          "total",
+          "terms"
+        ]
+      },
+      "ShareReview": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "draftETag": {
+            "type": "string"
+          },
+          "reviewToken": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "presentation": {
+            "$ref": "#/components/schemas/ReviewPresentation"
+          }
+        },
+        "required": [
+          "draftETag",
+          "reviewToken",
+          "presentation"
+        ]
+      },
+      "ShareWrite": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "reviewToken": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "required": [
+          "reviewToken"
+        ]
+      },
+      "PublicViewWrite": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "description": "Canonical 32-byte base64url bearer secret from the URL fragment."
+          }
+        },
+        "required": [
+          "token"
+        ]
+      },
+      "AccessRead": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "const": "SUPERSEDED"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ACTIVE",
+                  "EXPIRED",
+                  "REVOKED"
+                ]
+              },
+              "generation": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "issuedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "expiresAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "revokedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "etag": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "generation",
+              "issuedAt",
+              "expiresAt",
+              "revokedAt",
+              "etag"
+            ]
+          }
+        ]
+      },
+      "AccessLink": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Secret USER_ORIGIN/q#token URL. Copy does not extend expiresAt."
+          },
+          "generation": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "url",
+          "generation",
+          "expiresAt"
+        ]
+      }
+    },
+    "responses": {
+      "Problem": {
+        "description": "Safe RFC 9457 problem; no secrets, SQL or stack.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Bounded delayed retry, no permanent lockout.",
+        "headers": {
+          "Retry-After": {
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Auth",
+      "description": "Administrator and Employee sessions and own credentials."
+    },
+    {
+      "name": "Staff",
+      "description": "Administrator-only Employee administration."
+    },
+    {
+      "name": "Company",
+      "description": "Company profile context and Administrator updates."
+    },
+    {
+      "name": "Catalog",
+      "description": "Staff catalog reads and Administrator pricing/availability maintenance."
+    },
+    {
+      "name": "Quotations",
+      "description": "Owned drafts, exact calculations, trusted copied catalog bases and preview. Administrator reads/maintains all; Employee only own."
+    },
+    {
+      "name": "PublicViewing",
+      "description": "Anonymous allowlisted snapshot retrieval; staff cookies are ignored."
+    }
+  ]
+}

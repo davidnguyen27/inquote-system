@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import { readFile, readdir } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { verifyPackage } from './package.mjs';
+
+const root = pathToFileURL(resolve(process.argv[2] ?? '.artifacts/runtime') + '/');
+await verifyPackage(fileURLToPath(root));
+assert.deepEqual((await readdir(root)).sort(), ['artifact-manifest.json', 'assets', 'dist', 'node_modules', 'openapi', 'package.json', 'pnpm-lock.yaml']);
+const { PasswordService } = await import(new URL('dist/modules/auth/password.service.js', root));
+const service = new PasswordService();
+const password = 'Synthetic package smoke 123!';
+service.validate(password);
+assert.equal(await service.verify(await service.hash(password), password), true);
+const { createApp } = await import(new URL('dist/app.js', root));
+assert.equal(typeof createApp, 'function');
+const spec = JSON.parse(await readFile(new URL('openapi/auth.openapi.json', root), 'utf8'));
+assert.equal(spec.openapi, '3.1.1');
+await import(new URL('dist/generated/prisma/client.js', root));
+console.log('Runtime smoke passed: isolated production dependencies, Argon2, auth assets, OpenAPI and application imports.');

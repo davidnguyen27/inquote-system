@@ -1,0 +1,202 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum StaffRole {
+  ADMINISTRATOR
+  EMPLOYEE
+
+  @@map("staff_role")
+}
+
+enum QuotationVersionState {
+  DRAFT
+  SHARED
+
+  @@map("quotation_version_state")
+}
+
+/// Staff identities are retained when disabled; quotation ownership never moves.
+model StaffUser {
+  id                           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  displayName                  String    @map("display_name") @db.VarChar(200)
+  normalizedEmail              String    @unique @map("normalized_email") @db.VarChar(254)
+  role                         StaffRole @default(EMPLOYEE)
+  enabled                      Boolean   @default(true)
+  passwordHash                 String    @map("password_hash") @db.Text
+  mustChangePassword           Boolean   @default(false) @map("must_change_password")
+  temporaryCredentialExpiresAt DateTime? @map("temporary_credential_expires_at") @db.Timestamptz(3)
+  revision                     Int       @default(1)
+  createdAt                    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  sessions          StaffSession[]
+  ownedQuotations   Quotation[]        @relation("QuotationOwner")
+  operationReceipts OperationReceipt[]
+
+  @@map("staff_user")
+}
+
+/// Only the SHA-256 digest is stored; idle expiry derives from lastSeenAt.
+model StaffSession {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  staffId           String    @map("staff_id") @db.Uuid
+  tokenHash         Bytes     @unique @map("token_hash") @db.ByteA
+  recoveryEpoch     String    @map("recovery_epoch") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastSeenAt        DateTime  @map("last_seen_at") @db.Timestamptz(3)
+  absoluteExpiresAt DateTime  @map("absolute_expires_at") @db.Timestamptz(3)
+  revokedAt         DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  staff StaffUser @relation(fields: [staffId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([staffId, revokedAt])
+  @@map("staff_session")
+}
+
+/// Singleton ID 1; sharing copies these values rather than retaining a live join.
+model CompanyProfile {
+  id          Int      @id @default(1)
+  displayName String?  @map("display_name") @db.VarChar(200)
+  address     String?  @db.VarChar(500)
+  phone       String?  @db.VarChar(50)
+  email       String?  @db.VarChar(254)
+  revision    Int      @default(1)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("company_profile")
+}
+
+/// One current whole-VND price; inactivation preserves copied quotation values.
+model CatalogItem {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String   @db.VarChar(200)
+  description  String?  @db.VarChar(500)
+  unit         String   @db.VarChar(50)
+  unitPriceVnd BigInt   @map("unit_price_vnd")
+  active       Boolean  @default(true)
+  revision     Int      @default(1)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("catalog_item")
+}
+
+/// Keep the allocation anchor even after discarding a never-shared quotation.
+model Quotation {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reference             String    @unique @default(dbgenerated("next_quotation_reference()")) @db.Text
+  ownerId               String    @map("owner_id") @db.Uuid
+  lastAllocatedNumber   Int       @default(1) @map("last_allocated_number")
+  latestSharedVersionId String?   @map("latest_shared_version_id") @db.Uuid
+  revision              Int       @default(1)
+  discardedAt           DateTime? @map("discarded_at") @db.Timestamptz(3)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  /// Derived list/search projection; rebuild from saved DRAFT or latest SHARED.
+  summaryCustomerName    String? @map("summary_customer_name") @db.VarChar(200)
+  summaryWorkDescription String? @map("summary_work_description") @db.VarChar(200)
+  summaryTotalVnd        BigInt? @map("summary_total_vnd")
+
+  owner               StaffUser          @relation("QuotationOwner", fields: [ownerId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  versions            QuotationVersion[] @relation("QuotationVersions")
+  latestSharedVersion QuotationVersion?  @relation("LatestSharedVersion", fields: [id, latestSharedVersionId], references: [quotationId, id], onDelete: NoAction, onUpdate: NoAction)
+  viewingAccess       ViewingAccess?
+
+  @@unique([id, latestSharedVersionId])
+  /// Non-discarded list indexes and the non-reuse guard are supplied by SQL.
+  @@map("quotation")
+}
+
+/// Complete ordered JSONB snapshot; only DRAFT can be saved or deleted.
+model QuotationVersion {
+  id            String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  quotationId   String                @map("quotation_id") @db.Uuid
+  number        Int
+  state         QuotationVersionState @default(DRAFT)
+  revision      Int                   @default(1)
+  schemaVersion Int                   @default(1) @map("schema_version")
+  /// customer/work/terms/lines/currency/calculated values/companySnapshot.
+  /// Numeric JSON values are decimal strings; CATALOG lines retain source/base/override.
+  /// JSON document validation, exact calculation and public projection belong to services.
+  content       Json                  @db.JsonB
+  createdAt     DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  sharedAt      DateTime?             @map("shared_at") @db.Timestamptz(3)
+
+  quotation          Quotation      @relation("QuotationVersions", fields: [quotationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  latestForQuotation Quotation?     @relation("LatestSharedVersion")
+  viewingAccess      ViewingAccess? @relation("AccessVersion")
+
+  @@unique([quotationId, number])
+  @@unique([quotationId, id])
+  /// SQL supplies a partial unique DRAFT index and the immutable SHARED trigger.
+  @@map("quotation_version")
+}
+
+/// One current grant per quotation; expired/revoked grants retain their metadata.
+model ViewingAccess {
+  quotationId     String    @id @map("quotation_id") @db.Uuid
+  versionId       String    @map("version_id") @db.Uuid
+  generation      String    @db.Uuid
+  tokenHash       Bytes     @unique @map("token_hash") @db.ByteA
+  tokenCiphertext Bytes?    @map("token_ciphertext") @db.ByteA
+  tokenNonce      Bytes?    @map("token_nonce") @db.ByteA
+  tokenTag        Bytes?    @map("token_tag") @db.ByteA
+  encryptionKeyId String?   @map("encryption_key_id") @db.Text
+  issuedAt        DateTime  @map("issued_at") @db.Timestamptz(3)
+  expiresAt       DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt       DateTime? @map("revoked_at") @db.Timestamptz(3)
+  revision        Int       @default(1)
+
+  quotation Quotation        @relation(fields: [quotationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  version   QuotationVersion @relation("AccessVersion", fields: [quotationId, versionId], references: [quotationId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([quotationId, versionId])
+  @@map("viewing_access")
+}
+
+/// Successful actor-scoped mutation result; never stores request bodies or secrets.
+model OperationReceipt {
+  actorId          String   @map("actor_id") @db.Uuid
+  idempotencyKey   String   @map("idempotency_key") @db.Uuid
+  fingerprint      Bytes    @db.ByteA
+  fingerprintKeyId String   @map("fingerprint_key_id") @db.Text
+  recoveryEpoch    String   @map("recovery_epoch") @db.Uuid
+  kind             String   @db.Text
+  method           String   @db.VarChar(10)
+  route            String   @db.Text
+  /// Compact target IDs remain available after a DRAFT target is deleted.
+  target           Json     @db.JsonB
+  resourceIds      Json     @map("resource_ids") @db.JsonB
+  appliedRevisions Json     @map("applied_revisions") @db.JsonB
+  accessGeneration String?  @map("access_generation") @db.Uuid
+  committedAt      DateTime @map("committed_at") @db.Timestamptz(3)
+
+  actor StaffUser @relation(fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([actorId, idempotencyKey])
+  @@map("operation_receipt")
+}
+
+/// Operational fixed-window counters; no raw email/IP/token key or viewing history.
+model RateLimitBucket {
+  scope       String   @db.Text
+  keyDigest   Bytes    @map("key_digest") @db.ByteA
+  windowStart DateTime @map("window_start") @db.Timestamptz(3)
+  count       Int      @default(0)
+  expiresAt   DateTime @map("expires_at") @db.Timestamptz(3)
+
+  @@id([scope, keyDigest, windowStart])
+  @@index([expiresAt])
+  @@map("rate_limit_bucket")
+}

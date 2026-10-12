@@ -1,0 +1,89 @@
+{
+  "name": "@inquote/server",
+  "version": "0.0.0",
+  "private": true,
+  "description": "InQuote Backend staff authentication/account API and Prisma business schema.",
+  "type": "module",
+  "packageManager": "pnpm@10.29.2",
+  "engines": {
+    "node": ">=24.13.0 <25",
+    "pnpm": "10.29.2"
+  },
+  "scripts": {
+    "dev": "nodemon",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "auth:bootstrap-admin": "node dist/modules/auth/operator.js bootstrap",
+    "auth:reset-admin": "node dist/modules/auth/operator.js reset",
+    "test:unit": "node --test test/unit/*.test.mjs",
+    "test:integration": "node --test --test-concurrency=1 test/integration/*.test.mjs",
+    "db:generate": "prisma generate",
+    "db:format": "prisma format",
+    "db:validate": "prisma validate",
+    "lint": "eslint src prisma.config.ts scripts test eslint.config.mjs",
+    "openapi:check": "node scripts/check-openapi.mjs",
+    "db:migrate": "prisma migrate deploy",
+    "db:check-drift": "prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code",
+    "verify": "pnpm db:generate && pnpm lint && pnpm typecheck && pnpm build && pnpm openapi:check && pnpm db:validate && pnpm test:unit",
+    "package:source": "node scripts/package.mjs source",
+    "package:context": "node scripts/package.mjs context && node scripts/check-context.mjs",
+    "package:runtime": "node scripts/package.mjs runtime && pnpm --dir .artifacts/runtime install --prod --frozen-lockfile && node scripts/runtime-smoke.mjs .artifacts/runtime",
+    "ops:housekeeping": "node dist/operations/operator.js housekeeping",
+    "ops:keys": "node dist/operations/operator.js keys"
+  },
+  "nodemonConfig": {
+    "watch": [
+      "src",
+      "assets/auth",
+      "openapi",
+      ".env",
+      "tsconfig.json",
+      "tsconfig.build.json"
+    ],
+    "ext": "ts,json,txt,env",
+    "ignore": [
+      "src/generated/**"
+    ],
+    "exec": "pnpm build && pnpm start",
+    "signal": "SIGTERM",
+    "delay": 300
+  },
+  "devDependencies": {
+    "@apidevtools/swagger-parser": "13.1.0",
+    "@babel/core": "8.0.7",
+    "@babel/eslint-parser": "8.0.7",
+    "@babel/plugin-syntax-decorators": "8.0.1",
+    "@babel/plugin-syntax-typescript": "8.0.3",
+    "@types/express": "5.0.6",
+    "@types/node": "24.19.1",
+    "@types/pg": "8.23.1",
+    "@types/swagger-ui-express": "4.1.8",
+    "eslint": "10.12.0",
+    "nodemon": "3.1.14",
+    "prisma": "7.10.0",
+    "supertest": "7.3.1",
+    "typescript": "7.0.2",
+    "yaml": "2.9.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "argon2",
+      "@prisma/engines",
+      "prisma"
+    ]
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
+    "argon2": "0.45.1",
+    "class-transformer": "0.5.1",
+    "class-validator": "0.15.1",
+    "cookie": "1.0.2",
+    "express": "5.3.0",
+    "helmet": "8.3.0",
+    "pg": "8.23.1",
+    "reflect-metadata": "0.2.2",
+    "swagger-ui-express": "5.0.1"
+  }
+}

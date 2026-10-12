@@ -1,0 +1,6 @@
+{
+  "commit": "cae9eab995852c183fbe5e03fc92471fcac82f0e",
+  "repository": "https://github.com/danielmiessler/SecLists",
+  "license": "MIT",
+  "path": "Passwords/Common-Credentials/10k-most-common.txt"
+}

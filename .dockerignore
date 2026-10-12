@@ -1,0 +1,27 @@
+# Docker builds use the prepared .artifacts/context directory; default builds
+# also exclude every input except the verified executable package.
+**
+!Dockerfile
+!.dockerignore
+!package.json
+!pnpm-lock.yaml
+!dist/
+!dist/**
+!assets/
+!assets/auth/
+!assets/auth/common-passwords.txt
+!assets/auth/LICENSE.txt
+!assets/auth/sources.json
+!openapi/
+!openapi/*.json
+**/.env*
+**/*.log
+**/*.dump
+**/*.backup
+**/*.bak
+**/*.pem
+**/*.key
+**/*.map
+**/.git/**
+**/.local/**
+**/.tmp/**

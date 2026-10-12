@@ -1,0 +1,90 @@
+name: Backend verification and candidate artifacts
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-bookworm@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826
+        env:
+          POSTGRES_DB: inquote_ci_test
+          POSTGRES_USER: synthetic
+          POSTGRES_PASSWORD: disposable-ci-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U synthetic -d inquote_ci_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      DATABASE_URL: postgresql://synthetic:disposable-ci-password@127.0.0.1:5432/inquote_ci_test
+      TEST_DATABASE_URL: postgresql://synthetic:disposable-ci-password@127.0.0.1:5432/inquote_ci_test
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # reviewed v4 tag
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # reviewed v4 tag
+        with:
+          version: 10.29.2
+          run_install: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # reviewed v4 tag
+        with:
+          node-version: 24.13.0
+      - name: Frozen dependency installation
+        run: pnpm install --frozen-lockfile
+      - name: Generate, lint, typecheck, build, contracts and all unit tests
+        run: pnpm verify
+      - name: Clean migration, repeat deployment and schema drift check
+        run: |
+          pnpm db:migrate
+          pnpm db:migrate
+          pnpm exec prisma migrate status
+          pnpm db:check-drift
+      - name: PostgreSQL invariants and all integration tests
+        run: |
+          psql "$TEST_DATABASE_URL" -X --set ON_ERROR_STOP=on --file prisma/tests/invariants.sql
+          pnpm test:integration
+      - name: Prepare source and isolated runtime artifacts
+        run: |
+          pnpm package:source
+          pnpm package:runtime
+          pnpm package:context
+      # Candidate images stay inside Actions artifacts. Registry publication and
+      # deployment require a separately approved release workflow/operator.
+      - name: Build and inspect trusted candidate image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          CANDIDATE_COMMIT: ${{ github.sha }}
+        run: |
+          docker build --pull --tag "inquote-candidate:$CANDIDATE_COMMIT" .artifacts/context
+          docker image inspect "inquote-candidate:$CANDIDATE_COMMIT" --format '{{.Id}}' > .artifacts/image-id.txt
+          docker run --rm --entrypoint node "inquote-candidate:$CANDIDATE_COMMIT" --input-type=module -e 'import fs from "node:fs"; for(const path of ["src","test","prisma",".env",".git",".local"]) if(fs.existsSync(path)) process.exit(1); const {PasswordService}=await import("./dist/modules/auth/password.service.js"); const service=new PasswordService(); const password="Synthetic container smoke 123!"; if(!await service.verify(await service.hash(password),password)) process.exit(1);'
+          docker save "inquote-candidate:$CANDIDATE_COMMIT" --output .artifacts/image.tar
+          tar -czf .artifacts/source.tar.gz -C .artifacts/source .
+          tar -czf .artifacts/runtime.tar.gz -C .artifacts/runtime .
+          sha256sum .artifacts/image.tar .artifacts/source.tar.gz .artifacts/runtime.tar.gz > .artifacts/SHA256SUMS
+      - name: Retain trusted candidate artifacts for review
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # reviewed v4 tag
+        with:
+          name: backend-candidate-${{ github.sha }}
+          path: |
+            .artifacts/image.tar
+            .artifacts/image-id.txt
+            .artifacts/source.tar.gz
+            .artifacts/runtime.tar.gz
+            .artifacts/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
