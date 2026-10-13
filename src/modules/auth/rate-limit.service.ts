@@ -3,7 +3,6 @@ import { Database } from "../../database/prisma.js";
 import { RateLimitProblem } from "../../http/problem.js";
 
 export class RateLimitService {
-  private lastCleanup = 0;
   constructor(
     private readonly database: Database,
     private readonly key: Buffer,
@@ -52,12 +51,7 @@ export class RateLimitService {
       }
       return { retryAfter, now: now! };
     });
-    if (result.now.getTime() - this.lastCleanup >= 60000) {
-      this.lastCleanup = result.now.getTime();
-      await this.database.client.rateLimitBucket.deleteMany({
-        where: { expiresAt: { lte: result.now } },
-      });
-    }
+    // Expired buckets are removed by bounded operator housekeeping, outside requests.
     if (result.retryAfter) throw new RateLimitProblem(result.retryAfter);
   }
 }

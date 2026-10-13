@@ -16,5 +16,5 @@ COPY --chown=node:node openapi ./openapi
 USER node
 RUN node --input-type=module -e 'import {PasswordService} from "./dist/modules/auth/password.service.js"; import {createApp} from "./dist/app.js"; const service=new PasswordService(); const password="Synthetic image smoke 123!"; if(!await service.verify(await service.hash(password),password)||typeof createApp!=="function") process.exit(1);'
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD ["node", "--input-type=module", "-e", "try{const response=await fetch('http://127.0.0.1:'+process.env.OPS_PORT+'/_ops/live',{signal:AbortSignal.timeout(3000)});process.exit(response.ok?0:1)}catch{process.exit(1)}"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD ["node", "--input-type=module", "-e", "try{const host=process.env.OPS_HOST||'127.0.0.1';const address=host.includes(':')?'['+host+']':host;const response=await fetch('http://'+address+':'+process.env.OPS_PORT+'/_ops/live',{signal:AbortSignal.timeout(3000)});process.exit(response.ok?0:1)}catch{process.exit(1)}"]
 CMD ["node", "dist/main.js"]

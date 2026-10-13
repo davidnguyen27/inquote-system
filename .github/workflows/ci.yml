@@ -71,6 +71,41 @@ jobs:
           docker build --pull --tag "inquote-candidate:$CANDIDATE_COMMIT" .artifacts/context
           docker image inspect "inquote-candidate:$CANDIDATE_COMMIT" --format '{{.Id}}' > .artifacts/image-id.txt
           docker run --rm --entrypoint node "inquote-candidate:$CANDIDATE_COMMIT" --input-type=module -e 'import fs from "node:fs"; for(const path of ["src","test","prisma",".env",".git",".local"]) if(fs.existsSync(path)) process.exit(1); const {PasswordService}=await import("./dist/modules/auth/password.service.js"); const service=new PasswordService(); const password="Synthetic container smoke 123!"; if(!await service.verify(await service.hash(password),password)) process.exit(1);'
+          mkdir -p .tmp
+          node --input-type=module <<'NODE'
+          import {writeFileSync} from 'node:fs';
+          import {fixtureConfig} from './test/helpers.mjs';
+          const c=fixtureConfig();
+          const env={DATABASE_URL:process.env.TEST_DATABASE_URL,ADMIN_ORIGIN:c.adminOrigin,USER_ORIGIN:c.userOrigin,
+            RECOVERY_EPOCH:c.recoveryEpoch,CSRF_HMAC_KEY:c.csrfKey.toString('base64'),RATE_LIMIT_HMAC_KEY:c.rateLimitKey.toString('base64'),
+            REVIEW_HMAC_KEY:c.reviewKey.toString('base64'),OPERATION_HMAC_KEYS:JSON.stringify(Object.fromEntries([...c.operationKeys].map(([id,key])=>[id,key.toString('base64')]))),
+            OPERATION_HMAC_CURRENT_KEY_ID:c.operationKeyId,VIEWING_LINK_KEYS:JSON.stringify(Object.fromEntries([...c.viewingKeys].map(([id,key])=>[id,key.toString('base64')]))),
+            VIEWING_LINK_CURRENT_KEY_ID:c.viewingKeyId,HOST:'127.0.0.1',PORT:'31000',OPS_HOST:'127.0.0.2',OPS_PORT:'31001'};
+          writeFileSync('.tmp/container-smoke.env',Object.entries(env).map(([key,value])=>key+'='+value).join('\n')+'\n',{mode:0o600});
+          NODE
+          trap 'docker rm -f inquote-smoke >/dev/null 2>&1 || true; rm -f .tmp/container-smoke.env' EXIT
+          docker run --detach --name inquote-smoke --network host --env-file .tmp/container-smoke.env --health-interval 1s --health-start-period 1s "inquote-candidate:$CANDIDATE_COMMIT" >/dev/null
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {execFileSync} from 'node:child_process';
+          let healthy=false;
+          for(let i=0;i<60;i++){
+            const state=JSON.parse(execFileSync('docker',['inspect','inquote-smoke','--format','{{json .State}}'],{encoding:'utf8'}));
+            assert.equal(state.Running,true,'Candidate container exited before becoming healthy');
+            if(state.Health?.Status==='healthy'){healthy=true;break;}
+            await new Promise(resolve=>setTimeout(resolve,1000));
+          }
+          assert.equal(healthy,true,'Candidate healthcheck did not become healthy');
+          const ready=await fetch('http://127.0.0.2:31001/_ops/ready');assert.equal(ready.status,200);
+          assert.equal((await fetch('http://127.0.0.1:31000/_ops/metrics')).status,404);
+          assert.equal((await fetch('http://127.0.0.1:31000/api/v1/quotations')).status,401);
+          const denied=await fetch('http://127.0.0.1:31000/api/v1/public/quotation-view',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"token":"invalid"}'});
+          assert.equal(denied.status,404);assert.equal((await denied.json()).code,'LINK_UNAVAILABLE');assert.equal(denied.headers.get('cache-control'),'no-store');
+          const metrics=await fetch('http://127.0.0.2:31001/_ops/metrics');assert.equal(metrics.status,200);assert.match(await metrics.text(),/inquote_http_requests_total/);
+          execFileSync('docker',['stop','--time','15','inquote-smoke'],{stdio:'ignore'});
+          assert.equal(execFileSync('docker',['inspect','inquote-smoke','--format','{{.State.ExitCode}}'],{encoding:'utf8'}).trim(),'0');
+          console.log('Linux container smoke passed: configured healthcheck, readiness, private metrics, denied routes and graceful shutdown.');
+          NODE
           docker save "inquote-candidate:$CANDIDATE_COMMIT" --output .artifacts/image.tar
           tar -czf .artifacts/source.tar.gz -C .artifacts/source .
           tar -czf .artifacts/runtime.tar.gz -C .artifacts/runtime .

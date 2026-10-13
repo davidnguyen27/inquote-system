@@ -7,13 +7,18 @@ const buckets = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
 type Lifecycle = "started" | "stopping" | "stopped" | "configuration_failed" | "database_failed" | "listener_failed" | "shutdown_failed" | "shutdown_timeout";
 type Observation = { count: number; sum: number; buckets: number[] };
 export type PoolStats = { total: number; idle: number; waiting: number };
+const ignoreOutputError = () => {};
+const writeStdout = (line: string): void => { process.stdout.write(line + "\n"); };
 
 export class Telemetry {
   private readonly routes: Set<string>;
   private readonly observations = new Map<string, Observation>();
   private active = 0;
 
-  constructor(private readonly write: (line: string) => void = line => process.stdout.write(line + "\n")) {
+  constructor(private readonly write: (line: string) => void = writeStdout) {
+    // Stream errors arrive asynchronously; one silent handler covers the process-owned sink.
+    if (write === writeStdout && !process.stdout.listeners("error").includes(ignoreOutputError))
+      process.stdout.on("error", ignoreOutputError);
     const contract = JSON.parse(readFileSync(new URL("../../openapi/auth.openapi.json", import.meta.url), "utf8")) as { paths: Record<string, unknown> };
     this.routes = new Set(Object.keys(contract.paths).map(path => "/api/v1" + path.replace(/\{([a-zA-Z]+)\}/g, ":$1")));
     for (const path of ["/", "/openapi.json", "/docs/"]) this.routes.add(path);

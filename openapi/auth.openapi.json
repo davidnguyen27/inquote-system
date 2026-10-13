@@ -2927,7 +2927,14 @@
               "RATE_LIMITED",
               "INTERNAL_ERROR",
               "SERVICE_UNAVAILABLE",
-              "EMAIL_ALREADY_EXISTS"
+              "EMAIL_ALREADY_EXISTS",
+              "UNIT_MISMATCH",
+              "SOURCE_UNAVAILABLE",
+              "CATALOG_CHANGED",
+              "REVIEW_STALE",
+              "VERSION_IMMUTABLE",
+              "LINK_UNAVAILABLE",
+              "ACCESS_SUPERSEDED"
             ]
           },
           "detail": {

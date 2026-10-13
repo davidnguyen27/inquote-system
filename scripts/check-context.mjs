@@ -12,7 +12,7 @@ assert.equal(bases.length, 2);
 for (const line of bases) assert.match(line, /^FROM node:24\.13\.0-bookworm-slim@sha256:[a-f0-9]{64} AS (?:dependencies|runtime)$/);
 assert.ok(lines.includes('USER node'));
 assert.ok(lines.includes('CMD ["node", "dist/main.js"]'));
-assert.match(dockerfile, /HEALTHCHECK .*127\.0\.0\.1:.*\/_ops\/live/);
+assert.match(dockerfile, /HEALTHCHECK .*process\.env\.OPS_HOST.*\/_ops\/live/);
 assert.equal(lines.filter(line => line.startsWith('EXPOSE ')).join(), 'EXPOSE 3000');
 for (const line of lines.filter(line => line.startsWith('COPY ') && !line.includes('--from='))) {
   const sources = line.split(/\s+/).slice(1, -1).filter(value => !value.startsWith('--'));
