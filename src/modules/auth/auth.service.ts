@@ -1,4 +1,5 @@
-import { isEmail, isUUID } from "class-validator";
+import { isUUID } from "class-validator";
+import { validateEmail } from "../../domain/text.js";
 import type { AppConfig } from "../../config/env.js";
 import { HttpProblem } from "../../http/problem.js";
 import { AuthRepository, type SessionContext } from "./auth.repository.js";
@@ -17,12 +18,12 @@ export class AuthService {
     private readonly receipts: OperationReceiptService,
   ) {}
   async login(body: LoginDto) {
-    const email = body.email?.trim().toLowerCase() ?? "",
+    const email = validateEmail(body.email, "account"),
       password = body.password ?? "";
     const observed =
-      email.length <= 254 && isEmail(email)
+      email.ok
         ? await this.repository.database.client.staffUser.findUnique({
-            where: { normalizedEmail: email },
+            where: { normalizedEmail: email.value },
           })
         : null;
     let valid = false;

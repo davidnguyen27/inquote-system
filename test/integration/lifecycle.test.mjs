@@ -138,5 +138,16 @@ test('operator accepts protected stdin, rejects password arguments and never ret
   assert.equal(first.code,0,first.output);assert.equal(first.output.includes(password),false);
   const reset=await run(['reset','--email','operator@example.test'],nextPassword+'\n');assert.equal(reset.code,0,reset.output);assert.equal(reset.output.includes(nextPassword),false);
   const unsafe=await run(['reset','--email','operator@example.test','--password',password],'');assert.equal(unsafe.code,1);assert.equal(unsafe.output.includes(password),false);
+  const invalid=await run(['reset','--email','not an email'],nextPassword+'\n');assert.equal(invalid.code,1);assert.ok(invalid.output.includes('INVALID_REQUEST'));assert.equal(invalid.output.includes(nextPassword),false);
   assert.equal(await pwd.verify((await db.client.staffUser.findUnique({where:{normalizedEmail:'operator@example.test'}})).passwordHash,nextPassword),true);
+});
+
+test('Administrator provisioning rejects malformed email encoding before any database change',async()=>{
+ const {AdministratorProvisioningService}=await import('../../dist/modules/auth/provisioning.service.js');const service=new AdministratorProvisioningService(db,pwd);
+ const before=await db.client.staffUser.findMany({orderBy:{id:'asc'}}),sessions=await db.client.staffSession.count(),receipts=await db.client.operationReceipt.count();
+ for(const email of ['a\ud800b@example.test','a@\udfff.test','a\u0000b@example.test','a@\u0000.test']){
+  for(const call of [()=>service.bootstrap(email,'Synthetic Administrator',password),()=>service.reset(email,nextPassword)])await assert.rejects(call,e=>e.status===400&&e.code==='INVALID_REQUEST');
+ }
+ assert.deepEqual(await db.client.staffUser.findMany({orderBy:{id:'asc'}}),before);assert.equal(await db.client.staffSession.count(),sessions);assert.equal(await db.client.operationReceipt.count(),receipts);
+ const id=await service.bootstrap(' A.User+Tag@😀.COM ',' 😀\nAdministrator ',password),row=await db.client.staffUser.findUnique({where:{id}});assert.equal(row.normalizedEmail,'a.user+tag@😀.com');assert.equal(row.displayName,'😀\nAdministrator');
 });

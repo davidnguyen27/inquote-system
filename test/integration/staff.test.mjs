@@ -38,6 +38,9 @@ test('administrator creates a fixed-role employee, no credential is returned, id
   assert.equal(JSON.stringify(created.body).includes(secret),false);
   assert.equal(JSON.stringify(await db.client.operationReceipt.findMany()).includes(secret),false);
   const replay=await write('post','/api/v1/staff',body,{operationKey:intent}); assert.equal(replay.status,201); assert.deepEqual(replay.body,created.body);
+  for(const changed of [{...body,displayName:body.displayName.trim()},{...body,email:body.email.trim().toLowerCase()}]){
+    const rejected=await write('post','/api/v1/staff',changed,{operationKey:intent});assert.equal(rejected.status,409);assert.equal(rejected.body.code,'IDEMPOTENCY_KEY_REUSED');
+  }
   const changed=await write('post','/api/v1/staff',{...body,temporaryPassword:temporary()},{operationKey:intent}); assert.equal(changed.status,409); assert.equal(changed.body.code,'IDEMPOTENCY_KEY_REUSED');
   const operation=await request(app).get('/api/v1/operations/'+intent).set('Cookie',cookie(session)).set('X-Recovery-Epoch',epoch); assert.equal(operation.status,200);
   const limited=await login(row.normalizedEmail,secret); assert.equal(limited.status,200); assert.equal(limited.body.mustChangePassword,true);
@@ -53,6 +56,20 @@ test('staff rejects NUL and lone-surrogate names before create or replacement wi
   const replace=await write('put','/api/v1/staff/'+employee.id,{displayName:name,enabled:false},{etag:original.body.etag});assert.equal(replace.status,422);assert.equal(replace.body.errors[0].pointer,'/displayName');
  }
  assert.equal(await db.client.staffUser.count(),2);assert.equal(await db.client.operationReceipt.count(),receiptCount);assert.equal((await detail(employee.id)).body.etag,original.body.etag);assert.equal((await db.client.staffUser.findUnique({where:{id:employee.id}})).enabled,true);
+});
+
+test('staff rejects malformed email encoding before persistence with a safe email field error',async()=>{
+ const before=await detail(employee.id),receipts=await db.client.operationReceipt.count();
+ for(const email of ['a\ud800b@example.test','a@\udfff.test','a\u0000b@example.test','a@\u0000.test']){
+  const r=await write('post','/api/v1/staff',{displayName:'Synthetic new employee',email,temporaryPassword:temporary()});
+  assert.equal(r.status,422);assert.equal(r.body.code,'VALIDATION_FAILED');assert.deepEqual(r.body.errors,[{pointer:'/email',code:'INVALID_EMAIL',message:'Use a valid email address.'}]);
+ }
+ assert.equal(await db.client.staffUser.count(),2);assert.equal(await db.client.operationReceipt.count(),receipts);assert.equal((await detail(employee.id)).body.etag,before.body.etag);
+});
+
+test('staff account email keeps Unicode domains and dot/plus while storing normalized identity',async()=>{
+ const r=await write('post','/api/v1/staff',{displayName:' 😀\nEmployee ',email:' A.User+Tag@😀.COM ',temporaryPassword:temporary()});assert.equal(r.status,201);
+ const row=await db.client.staffUser.findUnique({where:{id:r.body.operation.resourceIds.staffId}});assert.equal(row.normalizedEmail,'a.user+tag@😀.com');assert.equal(row.displayName,'😀\nEmployee');
 });
 test('staff search rejects unstorable text but preserves ordinary newlines and astral Unicode',async()=>{
  for(const search of ['A\u0000B']){

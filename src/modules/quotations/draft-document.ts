@@ -1,7 +1,7 @@
-import {isEmail,isUUID} from "class-validator";
+import {isUUID} from "class-validator";
 import {VndCalculator,VndValidationError} from "../../domain/money.js";
 import {HttpProblem} from "../../http/problem.js";
-import {text} from "../common/common-data.js";
+import {textField,emailField} from "../../http/text-validation.js";
 import {DraftWriteDto,exactObject,type Customer,type Work,type LineInput} from "./quotations.dto.js";
 export type Source={id:string;active:boolean;revision:number;unit:string;unitPriceVnd:bigint};
 export type SavedLine={lineId:string;kind:"CUSTOM"|"CATALOG";description:string|null;unit:string|null;quantity:string|null;unitPrice:string|null;amount:string|null;sourceCatalogId?:string;sourceRevision?:number;baseUnitPrice?:string;overrideUnitPrice?:string|null};
@@ -23,13 +23,13 @@ export class DraftDocument {
     catch(error){if(error instanceof VndValidationError)throw this.invalid(pointer,error.code);throw error;}
   }
   string(value:unknown,pointer:string,max:number):string|null {
-    if(value!==null&&typeof value!=="string")throw new HttpProblem(400,"INVALID_REQUEST");
-    return text(value as string|null,pointer,max);
+    return textField(value,pointer,max);
   }
   resolve(body:unknown,saved:SavedLine[],sources:Map<string,Source>):Content {
     const dto=DraftWriteDto.parse(body),previous=new Map(saved.map(line=>[line.lineId,line]));
     const customer:Customer={name:this.string(dto.customer.name,"/customer/name",200),contactPerson:this.string(dto.customer.contactPerson,"/customer/contactPerson",200),phone:this.string(dto.customer.phone,"/customer/phone",50),email:this.string(dto.customer.email,"/customer/email",254),address:this.string(dto.customer.address,"/customer/address",500)};
-    if(customer.email&&!isEmail(customer.email))throw this.invalid("/customer/email","INVALID_EMAIL");
+    // Preserve customer text-error order before checking the email's syntax.
+    customer.email=emailField(customer.email,"/customer/email","contact","Supply a valid value within the documented limits.");
     const work:Work={description:this.string(dto.work.description,"/work/description",200),siteAddress:this.string(dto.work.siteAddress,"/work/siteAddress",500)};
     const terms=this.string(dto.terms,"/terms",5000);
     const lines=dto.lines.map((line,index):SavedLine=>{

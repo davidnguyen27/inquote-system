@@ -7,7 +7,8 @@ import {AuthRepository,type SessionContext} from "../auth/auth.repository.js";
 import {operationSummary} from "../auth/auth.mapper.js";
 import {OperationReceiptService} from "../auth/operation-receipt.service.js";
 import {SessionService,equalBytes,tokenBytes} from "../auth/security.js";
-import {invalidText,requireId,type WriteHeaders} from "../common/common-data.js";
+import {requireId,type WriteHeaders} from "../common/common-data.js";
+import {validateText} from "../../domain/text.js";
 import {DraftDocument} from "./draft-document.js";
 import {QuotationMapper,quotationETag} from "./quotations.mapper.js";
 import {QuotationsRepository,type ListFilter} from "./quotations.repository.js";
@@ -61,7 +62,7 @@ export class QuotationsService {
   }
   private limit(value:unknown){if(value===undefined)return 25;if(typeof value!=='string'||!/^[1-9]\d*$/.test(value)||Number(value)>100)throw new HttpProblem(400,'INVALID_REQUEST');return Number(value);}
   list(token:string|undefined,dto:QuotationListDto){return this.auth.withSession(token,{allowLimited:false},async context=>{
-    const query=dto.query,limit=this.limit(query.limit);if(query.search!==undefined&&(typeof query.search!=='string'||invalidText(query.search)||[...query.search].length>200))throw new HttpProblem(400,'INVALID_REQUEST');const search=(query.search as string|undefined)?.trim()??'';const filter:ListFilter={limit,search};for(const name of ['hasDraft','hasShared'] as const)if(query[name]!==undefined){if(!['true','false'].includes(query[name] as string))throw new HttpProblem(400,'INVALID_REQUEST');filter[name]=query[name]==='true';}
+    const query=dto.query,limit=this.limit(query.limit);if(query.search!==undefined&&typeof query.search!=='string')throw new HttpProblem(400,'INVALID_REQUEST');const parsed=validateText(query.search??'',{maxCodePoints:200});if(!parsed.ok)throw new HttpProblem(400,'INVALID_REQUEST');const search=parsed.value??'';const filter:ListFilter={limit,search};for(const name of ['hasDraft','hasShared'] as const)if(query[name]!==undefined){if(!['true','false'].includes(query[name] as string))throw new HttpProblem(400,'INVALID_REQUEST');filter[name]=query[name]==='true';}
     if(query.ownerId!==undefined){if(context.staff.role!=='ADMINISTRATOR')throw new HttpProblem(403,'FORBIDDEN');if(typeof query.ownerId!=='string')throw new HttpProblem(400,'INVALID_REQUEST');filter.ownerId=requireId(query.ownerId);}
     const filters=[search,filter.hasDraft??null,filter.hasShared??null,filter.ownerId??null,limit];if(query.cursor!==undefined){const value=this.position(query.cursor,'list',filters);if(!Array.isArray(value)||value.length!==2||typeof value[0]!=='string'||!Number.isFinite(Date.parse(value[0]))||new Date(value[0]).toISOString()!==value[0]||typeof value[1]!=='string'||!isUUID(value[1]))throw new HttpProblem(400,'INVALID_REQUEST');filter.after=value as [string,string];}
     const rows=await this.repository.list(context,filter),items=rows.slice(0,limit),last=items.at(-1);return {items:items.map(row=>this.mapper.summary(row)),nextCursor:rows.length>limit&&last?this.cursor('list',filters,[last.updatedAt.toISOString(),last.id]):null};

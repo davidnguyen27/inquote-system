@@ -29,6 +29,18 @@ beforeEach(async()=>{
   session=await login(admin.normalizedEmail);employeeSession=await login(employee.normalizedEmail);
 });
 
+test('company contact email preserves case and encoding errors precede syntax without mutation',async()=>{
+ const initial=await get('/api/v1/company'),receipts=await db.client.operationReceipt.count();
+ for(const [email,code] of [['a\ud800b@example.test','INVALID_TEXT'],['a@\udfff.test','INVALID_TEXT'],['a\u0000b@example.test','INVALID_TEXT'],['bad','INVALID_EMAIL']]){
+  const r=await write('put','/api/v1/company',{...company,email},{etag:initial.body.etag});assert.equal(r.status,422);assert.equal(r.body.errors[0].pointer,'/email');assert.equal(r.body.errors[0].code,code);
+ }
+ assert.equal((await get('/api/v1/company')).body.etag,initial.body.etag);assert.equal(await db.client.operationReceipt.count(),receipts);
+ const operationKey=key(),body={...company,email:' Contact+Tag@😀.COM '};
+ const r=await write('put','/api/v1/company',body,{etag:initial.body.etag,operationKey});assert.equal(r.status,200);assert.equal((await get('/api/v1/company')).body.email,'Contact+Tag@😀.COM');
+ assert.deepEqual((await write('put','/api/v1/company',body,{etag:initial.body.etag,operationKey})).body,r.body);
+ const changed=await write('put','/api/v1/company',{...body,email:body.email.trim()},{etag:initial.body.etag,operationKey});assert.equal(changed.status,409);assert.equal(changed.body.code,'IDEMPOTENCY_KEY_REUSED');
+});
+
 test('company replacement normalizes optional fields and returns a recoverable revision receipt',async()=>{
   const initial=await get('/api/v1/company',employeeSession);assert.equal(initial.status,200);assert.equal(initial.body.id,1);assert.equal(initial.headers.etag,initial.body.etag);
   const intent=key(),saved=await write('put','/api/v1/company',company,{etag:initial.body.etag,operationKey:intent});assert.equal(saved.status,200);assert.equal(saved.body.operation.kind,'UPDATE_COMPANY');assert.deepEqual(saved.body.operation.appliedRevisions,{company:2});

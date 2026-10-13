@@ -54,6 +54,15 @@ test('Origin, unknown fields, content type, CSRF and body size cannot bypass gua
   const r=await request(app).post('/api/v1/auth/change-password').set('Origin',origin).set('Cookie',cookie(session)).send({currentPassword:password,newPassword:nextPassword});
   assert.equal(r.status,403);
 });
+
+test('malformed Unicode email login returns uniform denial without sessions or successful receipts',async()=>{
+  for(const email of ['a\ud800b@example.test','a@\udfff.test','a\u0000b@example.test','a@\u0000.test']){
+    const r=await login(email);assert.equal(r.status,401);assert.equal(r.body.code,'INVALID_CREDENTIALS');
+    assert.equal(r.headers['set-cookie'],undefined);assert.equal(JSON.stringify(r.body).includes(JSON.stringify(email).slice(1,-1)),false);
+  }
+  assert.equal(await database.client.staffSession.count(),0);assert.equal(await database.client.operationReceipt.count(),0);
+  assert.equal(await database.client.staffUser.count(),1);
+});
 test('limited session can inspect, change password and logout but guard rejects full use cases',async()=>{
   await database.client.staffUser.update({where:{id:user.id},data:{mustChangePassword:true,temporaryCredentialExpiresAt:new Date(Date.now()+24*60*60*1000)}});
   const session=await login();assert.equal(session.body.mustChangePassword,true);

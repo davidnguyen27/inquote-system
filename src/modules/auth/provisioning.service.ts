@@ -1,8 +1,7 @@
-import { isEmail } from "class-validator";
 import { Database } from "../../database/prisma.js";
 import { HttpProblem } from "../../http/problem.js";
 import { PasswordService } from "./password.service.js";
-import {invalidText} from '../common/common-data.js';
+import { validateEmail, validateText } from '../../domain/text.js';
 
 export class AdministratorProvisioningService {
   constructor(
@@ -10,10 +9,10 @@ export class AdministratorProvisioningService {
     private readonly passwords: PasswordService,
   ) {}
   private email(value: string): string {
-    const email = value.trim().toLowerCase();
-    if (email.length > 254 || !isEmail(email))
+    const email = validateEmail(value, "account");
+    if (!email.ok)
       throw new HttpProblem(400, "INVALID_REQUEST");
-    return email;
+    return email.value;
   }
   async bootstrap(
     emailInput: string,
@@ -21,8 +20,8 @@ export class AdministratorProvisioningService {
     password: string,
   ): Promise<string> {
     const email = this.email(emailInput),
-      name = displayName.trim();
-    if (!name || [...name].length > 200 || invalidText(name))
+      name = validateText(displayName, { maxCodePoints: 200, required: true });
+    if (!name.ok)
       throw new HttpProblem(400, "INVALID_REQUEST");
     this.passwords.validate(password);
     const hash = await this.passwords.hash(password);
@@ -45,7 +44,7 @@ export class AdministratorProvisioningService {
       const staff = await tx.staffUser.create({
         data: {
           normalizedEmail: email,
-          displayName: name,
+          displayName: name.value!,
           role: "ADMINISTRATOR",
           passwordHash: hash,
         },

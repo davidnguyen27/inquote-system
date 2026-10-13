@@ -3,7 +3,9 @@ import type { Prisma } from "../../generated/prisma/client.js";
 import { VndCalculator, VndValidationError } from "../../domain/money.js";
 import { HttpProblem } from "../../http/problem.js";
 import { AuthRepository } from "../auth/auth.repository.js";
-import { CatalogCursor, CommonMutationService, invalidText, requireId, resourceETag, text, type WriteHeaders } from "../common/common-data.js";
+import { CatalogCursor, CommonMutationService, requireId, resourceETag, type WriteHeaders } from "../common/common-data.js";
+import { validateText } from "../../domain/text.js";
+import { textField } from "../../http/text-validation.js";
 import type { CatalogListDto, CatalogWriteDto } from "./catalog.dto.js";
 import { CatalogMapper } from "./catalog.mapper.js";
 import { CatalogRepository } from "./catalog.repository.js";
@@ -18,9 +20,10 @@ export class CatalogService {
   authorize(token: string | undefined) { return this.mutations.authorize(token); }
   list(token: string | undefined,query: CatalogListDto) {
     return this.auth.withSession(token,{allowLimited:false},async context=>{
-      const limit=Number(query.limit??"25"),search=(query.search??"").trim();
-      if(!/^[1-9]\d*$/.test(query.limit??"25") || limit>100 || invalidText(search) || [...search].length>200 ||
+      const limit=Number(query.limit??"25"),parsed=validateText(query.search??"",{maxCodePoints:200});
+      if(!/^[1-9]\d*$/.test(query.limit??"25") || limit>100 || !parsed.ok ||
         (query.active!==undefined && !["true","false"].includes(query.active)))throw new HttpProblem(400,"INVALID_REQUEST");
+      const search=parsed.value??"";
       if(context.staff.role!=="ADMINISTRATOR" && query.active==="false")throw new HttpProblem(403,"FORBIDDEN");
       const active=context.staff.role==="ADMINISTRATOR" ? query.active : "true";
       const filter=[search,query.active??"",limit];
@@ -52,7 +55,7 @@ export class CatalogService {
       route:"/api/v1/catalog-items"+(id?"/"+id:""),body:{name:body.name,description:body.description,unit:body.unit,unitPrice:body.unitPrice,active:body.active}},async(context,precondition)=>{
       if(id){const current=await this.repository.lock(context.tx,id);if(!current)throw new HttpProblem(404,"NOT_FOUND");
         if(precondition!==resourceETag("catalog",id,current.revision,this.config.recoveryEpoch))throw new HttpProblem(412,"REVISION_CONFLICT");}
-      const data={name:text(body.name,"/name",200,true)!,description:text(body.description,"/description",500),unit:text(body.unit,"/unit",50,true)!,
+      const data={name:textField(body.name,"/name",200,true)!,description:textField(body.description,"/description",500),unit:textField(body.unit,"/unit",50,true)!,
         unitPriceVnd:this.price(body.unitPrice),active:body.active};
       const saved=id?await this.repository.update(context.tx,id,data,context.now):await this.repository.create(context.tx,data,context.now);
       return {resourceIds:{catalogItemId:saved.id},appliedRevisions:{catalogItem:saved.revision}};

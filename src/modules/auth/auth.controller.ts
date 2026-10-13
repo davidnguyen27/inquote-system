@@ -6,6 +6,7 @@ import { LoginDto, ChangePasswordDto, EmptyDto, parseDto } from "./auth.dto.js";
 import { RateLimitService } from "./rate-limit.service.js";
 import { SessionService } from "./security.js";
 import { AuthHttpContext, cookieName } from "./auth-http.js";
+import { accountEmailIdentity } from "../../domain/text.js";
 
 export { cookieName } from "./auth-http.js";
 const cookieOptions = {
@@ -40,7 +41,7 @@ export class AuthController {
     await this.limits.consume([
       {
         scope: "login_email",
-        identity: body.email?.trim().toLowerCase() ?? "",
+        identity: accountEmailIdentity(body.email),
         limit: 10,
         seconds: 900,
       },

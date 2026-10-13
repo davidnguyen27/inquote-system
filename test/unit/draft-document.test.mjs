@@ -29,3 +29,10 @@ test('line kind must be a string enum and rejects coercible arrays and malformed
    assert.throws(()=>new DraftDocument().resolve(body,[],new Map([[catalogId,source]])),error=>error.status===400);
  }
 });
+
+test('customer text errors retain precedence over email syntax when multiple fields are invalid',()=>{
+ const body=base();body.customer.email='bad';body.customer.address='x'.repeat(501);
+ assert.throws(()=>new DraftDocument().resolve(body,[],new Map()),e=>e.status===422&&e.errors[0].pointer==='/customer/address'&&e.errors[0].code==='INVALID_TEXT');
+ body.customer.email='a\ud800b@example.test';
+ assert.throws(()=>new DraftDocument().resolve(body,[],new Map()),e=>e.errors[0].pointer==='/customer/email'&&e.errors[0].code==='INVALID_TEXT');
+});

@@ -14,16 +14,6 @@ type Applied = { resourceIds: Prisma.InputJsonObject; appliedRevisions: Prisma.I
 export function resourceETag(kind: "company" | "catalog", id: string | number, revision: number, epoch: string): string {
   return '"' + createHash("sha256").update(JSON.stringify([epoch,kind,id,revision])).digest("base64url") + '"';
 }
-export function text(value: string | null, pointer: string, max: number, required = false): string | null {
-  const normalized = value?.trim() || null;
-  if ((required && !normalized) || (normalized && (invalidText(normalized) || [...normalized].length > max)))
-    throw new HttpProblem(422,"VALIDATION_FAILED",[{pointer,code:"INVALID_TEXT",message:`Use ${required ? "1" : "0"}–${max} characters.`}]);
-  return normalized;
-}
-export function invalidText(value: string): boolean {
-  // PostgreSQL rejects NUL; UTF-8 encoding would silently replace lone surrogates.
-  return value.includes("\u0000") || /[\uD800-\uDFFF]/u.test(value);
-}
 export function requireId(id: string): string {
   if (!isUUID(id)) throw new HttpProblem(400,"INVALID_REQUEST");
   return id.toLowerCase();

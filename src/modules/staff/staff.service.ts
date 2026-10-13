@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { isEmail, isUUID } from "class-validator";
+import { isUUID } from "class-validator";
 import type { AppConfig } from "../../config/env.js";
 import { Prisma } from "../../generated/prisma/client.js";
 import { HttpProblem } from "../../http/problem.js";
@@ -11,7 +11,8 @@ import { RateLimitService } from "../auth/rate-limit.service.js";
 import { SessionService, equalBytes, staffETag, tokenBytes } from "../auth/security.js";
 import { StaffRepository } from "./staff.repository.js";
 import { StaffMapper } from "./staff.mapper.js";
-import {invalidText,text} from '../common/common-data.js';
+import { validateText } from '../../domain/text.js';
+import { emailField, textField } from '../../http/text-validation.js';
 import type { StaffCreateDto, StaffListDto, StaffResetDto, StaffUpdateDto } from "./staff.dto.js";
 
 type Headers = { epoch: string | undefined; key: string | undefined; precondition: string | undefined };
@@ -35,9 +36,10 @@ export class StaffService {
   list(token: string | undefined, query: StaffListDto) {
     return this.auth.withSession(token, { allowLimited: false }, async context => {
       this.administrator(context);
-      const limit = Number(query.limit ?? "25"), search = (query.search ?? "").trim();
-      if (!/^[1-9]\d*$/.test(query.limit ?? "25") || limit > 100 || invalidText(search) || [...search].length > 200 ||
+      const limit = Number(query.limit ?? "25"), parsed = validateText(query.search ?? "", { maxCodePoints: 200 });
+      if (!/^[1-9]\d*$/.test(query.limit ?? "25") || limit > 100 || !parsed.ok ||
         (query.enabled !== undefined && !["true", "false"].includes(query.enabled))) throw new HttpProblem(400, "INVALID_REQUEST");
+      const search = parsed.value ?? "";
       const filter = [search, query.enabled ?? "", limit];
       const where: Prisma.StaffUserWhereInput = { AND: [
         ...(search ? [{ OR: [{ displayName: { contains: search, mode: "insensitive" as const } },
@@ -103,20 +105,16 @@ export class StaffService {
       throw new HttpProblem(409, "IDEMPOTENCY_KEY_REUSED");
     return { operation: operationSummary(receipt) };
   }
-  private validate(intent: Intent): void {
-    if (intent.kind !== "RESET_EMPLOYEE_CREDENTIAL") {
-      text(intent.body.displayName,'/displayName',200,true);
-    }
-    if (intent.kind === "CREATE_EMPLOYEE") {
-      const email = intent.body.email.trim().toLowerCase();
-      if (email.length > 254 || !isEmail(email)) throw new HttpProblem(422, "VALIDATION_FAILED", [{pointer:"/email", code:"INVALID_EMAIL", message:"Use a valid email address."}]);
-    }
+  private validate(intent: Intent): { displayName: string | null; email: string | null } {
+    const displayName = intent.kind === "RESET_EMPLOYEE_CREDENTIAL" ? null : textField(intent.body.displayName, '/displayName', 200, true);
+    const email = intent.kind === "CREATE_EMPLOYEE" ? emailField(intent.body.email, '/email', 'account') : null;
     if (intent.kind !== "UPDATE_EMPLOYEE") {
       try { tokenBytes(intent.body.temporaryPassword); } catch {
         throw new HttpProblem(422, "VALIDATION_FAILED", [{pointer:"/temporaryPassword", code:"INVALID_TEMPORARY_PASSWORD", message:"Supply a canonical base64url credential generated from 32 random bytes."}]);
       }
       this.passwords.validate(intent.body.temporaryPassword);
     }
+    return { displayName, email };
   }
   private async write(token: string | undefined, csrf: string | undefined, intent: Intent, headers: Headers) {
     const previous = await this.auth.withSession(token, { allowLimited: false }, async context => {
@@ -125,7 +123,7 @@ export class StaffService {
       return { receipt, precondition, actorId: context.staff.id };
     });
     if (previous.receipt) return this.replay(previous.receipt, intent, previous.precondition);
-    this.validate(intent);
+    const normalized = this.validate(intent);
     let hash: string | undefined;
     if (intent.kind !== "UPDATE_EMPLOYEE") {
       await this.limits.consume([{scope:"employee_credentials", identity:previous.actorId, limit:10, seconds:3600}]);
@@ -143,9 +141,9 @@ export class StaffService {
           if (precondition !== staffETag(target.id, target.revision, this.config.recoveryEpoch)) throw new HttpProblem(412, "REVISION_CONFLICT");
         }
         const staff = intent.kind === "CREATE_EMPLOYEE"
-          ? await this.repository.create(context.tx, intent.body.displayName.trim(), intent.body.email.trim().toLowerCase(), hash!, context.now)
+          ? await this.repository.create(context.tx, normalized.displayName!, normalized.email!, hash!, context.now)
           : intent.kind === "UPDATE_EMPLOYEE"
-            ? await this.repository.update(context.tx, intent.id, intent.body.displayName.trim(), intent.body.enabled, context.now)
+            ? await this.repository.update(context.tx, intent.id, normalized.displayName!, intent.body.enabled, context.now)
             : await this.repository.reset(context.tx, intent.id, hash!, context.now);
         if (intent.kind === "RESET_EMPLOYEE_CREDENTIAL" || (intent.kind === "UPDATE_EMPLOYEE" && !intent.body.enabled))
           await this.repository.revokeSessions(context.tx, staff.id, context.now);
